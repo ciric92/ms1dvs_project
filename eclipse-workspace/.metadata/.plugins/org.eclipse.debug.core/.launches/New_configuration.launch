@@ -5,7 +5,7 @@
 <stringAttribute key="byteStreamDeviceCableName" value="USB-Blaster on localhost [USB-0]"/>
 <stringAttribute key="byteStreamDeviceDeviceID" value="1"/>
 <stringAttribute key="byteStreamDeviceInstanceID" value="0"/>
-<stringAttribute key="com.altera.sbtgui.launch.REMOTE_PORT" value="53734"/>
+<stringAttribute key="com.altera.sbtgui.launch.REMOTE_PORT" value="60373"/>
 <booleanAttribute key="downloadProgram" value="true"/>
 <stringAttribute key="elfFile" value="C:\Masters\MS1DVS\Project\software\first_app\first_app.elf"/>
 <stringAttribute key="elfUserFile" value="C:\Masters\MS1DVS\Project\software\first_app\first_app.elf"/>
