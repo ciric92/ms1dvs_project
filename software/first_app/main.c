@@ -12,12 +12,6 @@
 #define FRACTION_BITS 6
 #define PADDING_SIZE 3
 
-void generate_file_name(char* file_name, const char *read_name) {
-	strcat(file_name, "/mnt/host/");
-	strcat(file_name, read_name);
-	strcat(file_name, ".bin");
-}
-
 int main() {
 
 	FILE* file; // file to be read
@@ -33,20 +27,20 @@ int main() {
 	unsigned char *input_buf;
 	short* output_buf;
 
-	char* filter_file_name;
-	char* image_file_name;
-	char read_name[100];
+	char filter_file_name[100];
+	char image_file_name[100];
+	char output_file_name[100];
 
 	int tmp;
+
+	unsigned char* tmpPtr;
 
 	while (1) {
 
 		/* read filter */
-		read_name[0] = '\0';
-		printf("Filter file name:");
+		printf("Filter file path:");
 		scanf("%s", filter_file_name);
-		generate_file_name(read_name, filter_file_name);
-		file = fopen(read_name, "rb");
+		file = fopen(filter_file_name, "rb");
 
 		filter = (int**) malloc(sizeof(int*) * FILTER_SIZE);
 		read_value_int = (short*) malloc(sizeof(short));
@@ -54,7 +48,7 @@ int main() {
 			filter[i] = (int*) malloc(sizeof(int) * FILTER_SIZE);
 			for (j = 0; j < FILTER_SIZE; j++) {
 				fread(read_value_int, 2, 1, file);
-				filter[i][j] = *read_value_int; // / pow(2, FILTER_FRACTIONAL_BITS);
+				filter[i][j] = *read_value_int;
 			}
 		}
 
@@ -64,11 +58,13 @@ int main() {
 		PERF_START_MEASURING(PERFORMANCE_COUNTER_0_BASE);
 
 		/* read image */
-		read_name[0] = '\0';
-		printf("Image file name:");
+		printf("Image file path:");
 		scanf("%s", image_file_name);
-		generate_file_name(read_name, image_file_name);
-		file = fopen(read_name, "rb");
+
+		printf("Output file path:");
+		scanf("%s", output_file_name);
+
+		file = fopen(image_file_name, "rb");
 
 		width = (unsigned long*) malloc(4);
 		fread(width, 4, 1, file);
@@ -82,45 +78,43 @@ int main() {
 		fclose(file);
 		printf("Image read!\n");
 
-
 		image = (unsigned char**) malloc(sizeof(unsigned char*) * (*width + 2 * PADDING_SIZE));
 		for (i = 0; i < *width + 2 * PADDING_SIZE; i++) {
 			image[i] = (unsigned char*) malloc(sizeof(unsigned char) * (*height + 2 * PADDING_SIZE));
 		}
 
 		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, 1); // testing image padding
-		for (i = PADDING_SIZE; i < *width + PADDING_SIZE; i++) {
-			for (j = 0; j < *height + 2 * PADDING_SIZE; j++) {
+		for (i = PADDING_SIZE; i < *height + PADDING_SIZE; i++) {
+			for (j = 0; j < *width + 2 * PADDING_SIZE; j++) {
 				if (j < PADDING_SIZE) {
-					image[i][j] = input_buf[(i - PADDING_SIZE) * (*width)];
-				} else if (j >= *height + PADDING_SIZE) {
-					image[i][j] = input_buf[(i - PADDING_SIZE) * (*width) + (*width - 1)];
+					image[j][i] = input_buf[(i - PADDING_SIZE) * (*width)];
+				} else if (j >= *width + PADDING_SIZE) {
+					image[j][i] = input_buf[(i - PADDING_SIZE) * (*width) + (*width - 1)];
 				} else {
-					image[i][j] = input_buf[(i - PADDING_SIZE) * (*width) + j - PADDING_SIZE];
+					image[j][i] = input_buf[(i - PADDING_SIZE) * (*width) + j - PADDING_SIZE];
 				}
 			}
 		}
 		free(input_buf);
 
 		for (i = 0; i < PADDING_SIZE; i++) {
-			for (j = 0; j < *height + 2 * PADDING_SIZE; j++) {
-				image[i][j] = image[PADDING_SIZE][j];
-				image[*width + 2 * PADDING_SIZE - i - 1][j] = image[*width + PADDING_SIZE - 1][j];
+			for (j = 0; j < *width + 2 * PADDING_SIZE; j++) {
+				image[j][i] = image[j][PADDING_SIZE];
+				image[j][*height + 2 * PADDING_SIZE - i - 1] = image[j][*height + PADDING_SIZE - 1];
 			}
 		}
-
 		printf("Image padded!\n");
 		PERF_END(PERFORMANCE_COUNTER_0_BASE, 1); // end testing image padding
 
 		/* perform filtering */
 		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, 2); // testing image filtering
 		output_buf = (short*) malloc(sizeof(short) * (*width) * (*height));
-		for (i = 0; i < *width; i++) {
-			for (j = 0; j < *height; j++) {
+		for (i = 0; i < *height; i++) {
+			for (j = 0; j < *width; j++) {
 				tmp = 0;
 				for (k = 0; k < FILTER_SIZE; k++) {
 					for (p = 0; p < FILTER_SIZE; p++) {
-						tmp += filter[k][p] * image[i + k][j + p];
+						tmp += filter[k][p] * image[j + k][i + p];
 					}
 				}
 				tmp = tmp >> FRACTION_BITS;
@@ -134,19 +128,24 @@ int main() {
 			printf("%d\n", i);
 		}
 		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, 2); // end testing image filtering
+
+		/* free iamge */
+		for (i = 0; i < *width + 2 * PADDING_SIZE; i++) {
+			tmpPtr = image[i];
+			free(tmpPtr);
+		}
 		free(image);
+
 		printf("Applied filter!\n");
 
-		read_name[0] = '\0';
-		generate_file_name(read_name, "output_image");
-		file = fopen(read_name, "wb");
+		file = fopen(output_file_name, "wb");
 		fwrite(width, 4, 1, file);
 		fwrite(height, 4, 1, file);
 		fwrite(output_buf, 2, (*width) * (*height), file);
 		fclose(file);
 		free(output_buf);
 
-		printf("Output image saved as: %s\n", read_name);
+		printf("Output image saved");
 		printf("Process completed");
 		perf_print_formatted_report(PERFORMANCE_COUNTER_0_BASE,
 				alt_get_cpu_freq(),
@@ -158,8 +157,6 @@ int main() {
 		free(height);
 		free(width);
 		free(read_value_int);
-		free(filter_file_name);
-		free(image_file_name);
 	}
 
 	return 0;

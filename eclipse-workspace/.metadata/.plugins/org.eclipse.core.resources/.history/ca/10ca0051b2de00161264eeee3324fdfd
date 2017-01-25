@@ -1,0 +1,178 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+#include <string.h>
+
+#include "altera_avalon_performance_counter.h"
+#include <system.h>
+#include "sys/alt_cache.h"
+#include "alt_types.h"
+
+#define FILTER_SIZE 7
+#define FRACTION_BITS 6
+#define PADDING_SIZE 3
+
+void generate_file_name(char* file_name, const char *read_name) {
+	strcat(file_name, "/mnt/host/");
+	strcat(file_name, read_name);
+	strcat(file_name, ".bin");
+}
+
+int main() {
+
+	FILE* file; // file to be read
+
+	unsigned int i, j, k, p; // iterators
+
+	short* read_value_int;
+
+	int** filter;
+
+	unsigned long *width, *height; // image dims
+	unsigned char **image;
+	unsigned char *input_buf;
+	short* output_buf;
+
+	char* filter_file_name;
+	char* image_file_name;
+	char read_name[100];
+
+	int tmp;
+
+	while (1) {
+
+		/* read filter */
+		read_name[0] = '\0';
+		printf("Filter file name:");
+		scanf("%s", filter_file_name);
+		generate_file_name(read_name, filter_file_name);
+		file = fopen(read_name, "rb");
+
+		filter = (int**) malloc(sizeof(int*) * FILTER_SIZE);
+		read_value_int = (short*) malloc(sizeof(short));
+		for (i = 0; i < FILTER_SIZE; i++) {
+			filter[i] = (int*) malloc(sizeof(int) * FILTER_SIZE);
+			for (j = 0; j < FILTER_SIZE; j++) {
+				fread(read_value_int, 2, 1, file);
+				filter[i][j] = *read_value_int; // / pow(2, FILTER_FRACTIONAL_BITS);
+			}
+		}
+
+		fclose(file);
+
+		PERF_RESET(PERFORMANCE_COUNTER_0_BASE);
+		PERF_START_MEASURING(PERFORMANCE_COUNTER_0_BASE);
+
+		/* read image */
+		read_name[0] = '\0';
+		printf("Image file name:");
+		scanf("%s", image_file_name);
+		generate_file_name(read_name, image_file_name);
+		file = fopen(read_name, "rb");
+
+		width = (unsigned long*) malloc(4);
+		fread(width, 4, 1, file);
+
+		height = (unsigned long*) malloc(4);
+		fread(height, 4, 1, file);
+
+		input_buf = (unsigned char*) malloc(sizeof(unsigned char) * (*height) * (*width));
+		fread(input_buf, 1, (*height) * (*width), file);
+
+		fclose(file);
+		printf("Image read!\n");
+
+
+		image = (unsigned char**) malloc(sizeof(unsigned char*) * (*width + 2 * PADDING_SIZE));
+		for (i = 0; i < *width + 2 * PADDING_SIZE; i++) {
+			image[i] = (unsigned char*) malloc(sizeof(unsigned char) * (*height + 2 * PADDING_SIZE));
+		}
+
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, 1); // testing image padding
+		for (i = PADDING_SIZE; i < *width + PADDING_SIZE; i++) {
+			for (j = 0; j < *height + 2 * PADDING_SIZE; j++) {
+				if (j < PADDING_SIZE) {
+					image[i][j] = input_buf[(i - PADDING_SIZE) * (*width)];
+				} else if (j >= *height + PADDING_SIZE) {
+					image[i][j] = input_buf[(i - PADDING_SIZE) * (*width) + (*width - 1)];
+				} else {
+					image[i][j] = input_buf[(i - PADDING_SIZE) * (*width) + j - PADDING_SIZE];
+				}
+			}
+		}
+		free(input_buf);
+
+		for (i = 0; i < PADDING_SIZE; i++) {
+			for (j = 0; j < *height + 2 * PADDING_SIZE; j++) {
+				image[i][j] = image[PADDING_SIZE][j];
+				image[*width + 2 * PADDING_SIZE - i - 1][j] = image[*width + PADDING_SIZE - 1][j];
+			}
+		}
+
+		file = fopen("/mnt/host/padded_image.bin", "wb");
+		fwrite(width, 4, 1, file);
+		fwrite(height, 4, 1, file);
+		output_buf = (short*) malloc(sizeof(short) * (*width) * (*height));
+		for (i = 0; i < *height + 2*PADDING_SIZE; i++) {
+			for (j = 0; j < *width + 2*PADDING_SIZE; j++) {
+				output_buf[i * (*width + 2*PADDING_SIZE) + j] = image[i][j];
+			}
+		}
+		fwrite(output_buf, 2, (*width + 2*PADDING_SIZE) * (*height + 2*PADDING_SIZE), file);
+		fclose(file);
+
+		printf("Image padded!\n");
+		PERF_END(PERFORMANCE_COUNTER_0_BASE, 1); // end testing image padding
+
+		/* perform filtering */
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, 2); // testing image filtering
+		output_buf = (short*) malloc(sizeof(short) * (*width) * (*height));
+		for (i = 0; i < *width; i++) {
+			for (j = 0; j < *height; j++) {
+				tmp = 0;
+				for (k = 0; k < FILTER_SIZE; k++) {
+					for (p = 0; p < FILTER_SIZE; p++) {
+						tmp += filter[k][p] * image[i + k][j + p];
+					}
+				}
+				tmp = tmp >> FRACTION_BITS;
+				if (tmp > SHRT_MAX) {
+					tmp = SHRT_MAX;
+				} else if (tmp < SHRT_MIN) {
+					tmp = SHRT_MIN;
+				}
+				output_buf[i * (*width) + j] = tmp;
+			}
+			printf("%d\n", i);
+		}
+		PERF_BEGIN(PERFORMANCE_COUNTER_0_BASE, 2); // end testing image filtering
+		free(image);
+		printf("Applied filter!\n");
+
+		read_name[0] = '\0';
+		generate_file_name(read_name, "output_image");
+		file = fopen(read_name, "wb");
+		fwrite(width, 4, 1, file);
+		fwrite(height, 4, 1, file);
+		fwrite(output_buf, 2, (*width) * (*height), file);
+		fclose(file);
+		free(output_buf);
+
+		printf("Output image saved as: %s\n", read_name);
+		printf("Process completed");
+		perf_print_formatted_report(PERFORMANCE_COUNTER_0_BASE,
+				alt_get_cpu_freq(),
+				2,
+				"Image zero padding",
+				"Applying filter to the image");
+
+		free(filter);
+		free(height);
+		free(width);
+		free(read_value_int);
+		free(filter_file_name);
+		free(image_file_name);
+	}
+
+	return 0;
+}

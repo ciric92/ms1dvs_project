@@ -5,7 +5,7 @@ clc
 coeffs_filename = 'avg.bin';
 coeffs_frac_bits = 11;
 input_filename = 'panorama.bin';
-output_filename = 'output_image.bin';
+output_filename = 'panorama_avg_out.bin';
 output_frac_bits = 5;
 
 % Read filter coeffs
